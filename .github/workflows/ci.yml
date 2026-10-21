@@ -1,0 +1,24 @@
+name: macOS CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Tests
+        run: swift test
+      - name: Build app
+        run: ./scripts/build-app.sh
+      - name: Verify signature
+        run: codesign --verify --deep --strict dist/TuckBar.app
+      - name: Package app
+        run: ditto -c -k --sequesterRsrc --keepParent dist/TuckBar.app dist/TuckBar.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TuckBar-macos
+          path: dist/TuckBar.zip
