@@ -2,11 +2,12 @@ import AppKit
 import TuckBarCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var state = VisibilityState()
     private var toggleItem: NSStatusItem!
     private var dividerItem: NSStatusItem!
     private var helpWindow: NSWindow?
+    private var collapseTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the toggle first: new items normally appear to its left.
@@ -38,7 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
         if !UserDefaults.standard.bool(forKey: "hasShownSetup") {
             showHelp()
-            UserDefaults.standard.set(true, forKey: "hasShownSetup")
+
+        } else {
+            // Wait for macOS to restore saved menu bar positions before collapsing.
+            collapseTimer = Timer.scheduledTimer(timeInterval: 1, target: self,
+                selector: #selector(autoCollapse), userInfo: nil, repeats: false)
         }
     }
 
@@ -80,9 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         state.toggle()
         refresh()
+        scheduleAutoCollapse()
     }
 
     @objc private func refresh() {
+        dividerItem.button?.title = state.isExpanded ? "│" : ""
         dividerItem.length = CGFloat(state.dividerLength(
             screenWidths: NSScreen.screens.map { Double($0.frame.width) }
         ))
@@ -93,6 +100,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggleItem.button?.image = image
         toggleItem.button?.toolTip = "TuckBar · \(label)（右键查看更多）"
         toggleItem.button?.setAccessibilityLabel("TuckBar · \(label)")
+        if CommandLine.arguments.contains("--diagnostics") {
+            Timer.scheduledTimer(timeInterval: 0.2, target: self,
+                selector: #selector(reportDiagnostics), userInfo: nil, repeats: false)
+        }
+    }
+
+    // Reports only this app's own layout; no screen capture or other-app inspection.
+    @objc private func reportDiagnostics() {
+        let toggleFrame = toggleItem.button?.window?.frame ?? .zero
+        let dividerFrame = dividerItem.button?.window?.frame ?? .zero
+        let screenFrame = toggleItem.button?.window?.screen?.frame ?? .zero
+        let values: [String: Any] = [
+            "expanded": state.isExpanded,
+            "dividerLength": Double(dividerItem.length),
+            "dividerFrame": NSStringFromRect(dividerFrame),
+            "toggleFrame": NSStringFromRect(toggleFrame),
+            "toggleOnScreen": screenFrame.intersects(toggleFrame)
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
+           let line = String(data: data, encoding: .utf8) {
+            FileHandle.standardOutput.write(Data((line + "\n").utf8))
+        }
     }
 
     @objc private func showHelp() {
@@ -106,14 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             window.title = "TuckBar · 藏栏"
             window.isReleasedWhenClosed = false
+            window.delegate = self
             let title = NSTextField(labelWithString: "让菜单栏，清爽一点。")
             title.font = .systemFont(ofSize: 24, weight: .semibold)
-            let body = NSTextField(wrappingLabelWithString: "1. 按住 ⌘，把 │ 拖到 TuckBar 箭头的左侧。\n\n2. 按住 ⌘，把想隐藏的 App 图标拖到 │ 左侧；常用图标放在右侧。\n\n3. 点击箭头，一键收起或展开；右键箭头打开菜单。")
+            let body = NSTextField(wrappingLabelWithString: "1. 按住 ⌘，把 │ 拖到 TuckBar 箭头的左侧。\n\n2. 按住 ⌘，把想隐藏的 App 图标拖到 │ 左侧；常用图标放在右侧。\n\n3. 点击箭头，一键收起或展开；展开 15 秒后自动收起。右键箭头打开菜单。")
             body.font = .systemFont(ofSize: 14)
             let note = NSTextField(wrappingLabelWithString: "刘海屏提示：展开仍受菜单栏实际空间限制，图标过多时可能显示不全。系统固定图标和部分 App 图标无法移动。退出 TuckBar 会恢复显示。")
             note.font = .systemFont(ofSize: 12)
             note.textColor = .secondaryLabelColor
-            let done = NSButton(title: "开始整理", target: self, action: #selector(closeHelp))
+            let done = NSButton(title: "整理完成，收起图标", target: self, action: #selector(closeHelp))
             done.bezelStyle = .rounded
             done.keyEquivalent = "\r"
             let stack = NSStackView(views: [title, body, note, done])
@@ -133,11 +163,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.center()
             helpWindow = window
         }
+        collapseTimer?.invalidate()
         NSApp.activate(ignoringOtherApps: true)
         helpWindow?.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func closeHelp() { helpWindow?.close() }
+    @objc private func closeHelp() {
+        UserDefaults.standard.set(true, forKey: "hasShownSetup")
+        helpWindow?.close()
+        autoCollapse()
+    }
+
+    func windowWillClose(_ notification: Notification) { scheduleAutoCollapse() }
+
+    private func scheduleAutoCollapse() {
+        collapseTimer?.invalidate()
+        guard state.isExpanded, helpWindow?.isVisible != true else { return }
+        collapseTimer = Timer.scheduledTimer(timeInterval: 15, target: self,
+            selector: #selector(autoCollapse), userInfo: nil, repeats: false)
+    }
+
+    @objc private func autoCollapse() {
+        guard state.isExpanded, helpWindow?.isVisible != true,
+              let divider = dividerItem.button?.window,
+              let toggle = toggleItem.button?.window,
+              divider.screen == toggle.screen,
+              divider.frame.maxX <= toggle.frame.minX + 1 else { return }
+        state = VisibilityState(hasCompletedSetup: true)
+        refresh()
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

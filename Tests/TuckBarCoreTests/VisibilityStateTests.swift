@@ -27,3 +27,16 @@ struct VisibilityStateTests {
         #expect(state.dividerLength(screenWidths: [8000]) == 10000)
     }
 }
+
+struct StartupVisibilityTests {
+    @Test func completedSetupStartsCollapsed() {
+        let state = VisibilityState(hasCompletedSetup: true)
+        #expect(!state.isExpanded)
+        #expect(state.dividerLength(screenWidths: [1512]) == 3024)
+    }
+
+    @Test func firstLaunchStaysExpandedForArrangement() {
+        let state = VisibilityState(hasCompletedSetup: false)
+        #expect(state.isExpanded)
+    }
+}

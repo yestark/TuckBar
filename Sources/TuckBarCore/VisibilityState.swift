@@ -1,7 +1,9 @@
-/// Geometry for a collapsible menu bar region. Launch expanded so setup is safe.
+/// Geometry for a collapsible menu bar region. First launch stays expanded for setup; later launches start collapsed.
 public struct VisibilityState {
     public private(set) var isExpanded = true
-    public init() {}
+    public init(hasCompletedSetup: Bool = false) {
+        isExpanded = !hasCompletedSetup
+    }
     public mutating func toggle() { isExpanded.toggle() }
 
     public func dividerLength(screenWidths: [Double]) -> Double {
