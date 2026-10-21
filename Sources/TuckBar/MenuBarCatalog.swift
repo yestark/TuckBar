@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
-import ScreenCaptureKit
+// Older SDKs do not yet annotate ScreenCaptureKit objects as Sendable.
+@preconcurrency import ScreenCaptureKit
 
 @MainActor
 struct MenuBarEntry {

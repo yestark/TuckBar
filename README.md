@@ -39,6 +39,8 @@ cd TuckBar
 open dist/TuckBar.app
 ```
 
+也可从 [GitHub Releases](https://github.com/yestark/TuckBar/releases/latest) 下载 Apple Silicon / Intel 通用版，解压后将 `TuckBar.app` 拖入「应用程序」。
+
 将 `dist/TuckBar.app` 复制到「应用程序」即可使用。Xcode 可直接打开 `Package.swift`。
 
 构建脚本生成当前 Mac 架构的二进制，进行本地 ad-hoc 签名并验证。当前没有 Developer ID 签名或 Apple 公证；重新构建后的权限可能需要在系统设置中重新授权。
@@ -71,6 +73,8 @@ codesign --verify --deep --strict dist/TuckBar.app
 - 外接屏、显示器拔插、休眠唤醒、退出恢复。
 
 可选：`./dist/TuckBar.app/Contents/MacOS/TuckBar --diagnostics` 向标准输出报告本应用自身的分隔项宽度、按钮位置和状态。运行前先退出已有实例。
+
+通用发布包与 SHA-256 校验文件：运行 `./scripts/package-release.sh`，产物位于 `dist/`。
 
 图标使用 AppKit 绘制：`swift scripts/make-icon.swift`，然后运行 `iconutil -c icns Resources/TuckBar.iconset -o Resources/TuckBar.icns`。
 
