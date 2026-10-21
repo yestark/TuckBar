@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import TuckBarCore
 
 @MainActor
@@ -8,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var dividerItem: NSStatusItem!
     private var helpWindow: NSWindow?
     private var collapseTimer: Timer?
+    private let collection = CollectionPanel()
+    private var captureTask: Task<Void, Never>?
+    private var panelGeneration = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create the toggle first: new items normally appear to its left.
@@ -36,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self, selector: #selector(refresh),
             name: NSWorkspace.didWakeNotification, object: nil
         )
+        collection.onArrange = { [weak self] in self?.showHelp() }
+        collection.onReload = { [weak self] in self?.showPanel() }
+        collection.onPress = { [weak self] entry in self?.useEntry(entry) }
         refresh()
         if !UserDefaults.standard.bool(forKey: "hasShownSetup") {
             showHelp()
@@ -43,14 +50,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             // Wait for macOS to restore saved menu bar positions before collapsing.
             collapseTimer = Timer.scheduledTimer(timeInterval: 1, target: self,
-                selector: #selector(autoCollapse), userInfo: nil, repeats: false)
+                selector: #selector(showPanel), userInfo: nil, repeats: false)
         }
     }
 
     @objc private func clicked() {
         if NSApp.currentEvent?.type == .rightMouseUp {
             let menu = NSMenu()
-            addItem(state.isExpanded ? "收起隐藏区" : "展开隐藏区", action: #selector(toggle), to: menu)
+            addItem("打开收纳面板", action: #selector(showPanel), to: menu)
+            addItem("在原菜单栏展开 / 收起", action: #selector(toggle), to: menu)
             addItem("整理图标与使用说明…", action: #selector(showHelp), to: menu)
             menu.addItem(.separator())
             addItem("退出 TuckBar", action: #selector(quit), to: menu)
@@ -58,7 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
             }
         } else {
-            toggle()
+            if collection.window.isVisible {
+                captureTask?.cancel()
+                collection.window.orderOut(nil)
+            } else {
+                showPanel()
+            }
         }
     }
 
@@ -93,8 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dividerItem.length = CGFloat(state.dividerLength(
             screenWidths: NSScreen.screens.map { Double($0.frame.width) }
         ))
-        let name = state.isExpanded ? "chevron.left" : "chevron.right"
-        let label = state.isExpanded ? "收起隐藏区" : "展开隐藏区"
+        let name = "tray.and.arrow.down"
+        let label = "打开隐藏图标收纳面板"
         let image = NSImage(systemSymbolName: name, accessibilityDescription: label)
         image?.isTemplate = true
         toggleItem.button?.image = image
@@ -124,7 +137,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPanel()
+        return true
+    }
+
+    @objc private func showPanel() {
+        helpWindow?.close()
+        collapseTimer?.invalidate()
+        captureTask?.cancel()
+        panelGeneration += 1
+        let generation = panelGeneration
+        // Collapse before cataloguing; this keeps the actual icons out of the bar.
+        autoCollapse()
+        guard let anchor = toggleItem.button?.window,
+              let screen = anchor.screen ?? NSScreen.main else { return }
+        collection.show(anchor: anchor.frame, screen: screen.frame, toggleWindow: anchor)
+        collection.update(entries: [], message: "正在读取隐藏区…")
+        captureTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled, self.panelGeneration == generation,
+                  let divider = self.dividerItem.button?.window else { return }
+            guard !self.state.isExpanded else {
+                self.collection.update(entries: [], message: "分隔线位置不正确。点击「整理」，将 │ 拖到 TuckBar 图标左侧后完成整理。")
+                return
+            }
+            let desktopTop = NSScreen.screens.first?.frame.maxY ?? 0
+            let cgFrame = CGRect(x: divider.frame.minX, y: desktopTop - divider.frame.maxY,
+                width: divider.frame.width, height: divider.frame.height)
+            let entries = MenuBarCatalog.entries(dividerFrame: cgFrame, ownPID: ProcessInfo.processInfo.processIdentifier)
+            self.collection.update(entries: entries)
+            let captured = await MenuBarCatalog.captureImages(for: entries)
+            guard !Task.isCancelled, self.panelGeneration == generation else { return }
+            self.collection.update(entries: captured)
+        }
+    }
+
+    private func useEntry(_ entry: MenuBarEntry) {
+        guard AXIsProcessTrusted() else {
+            collection.showError("请先点击「授权辅助功能」，授权后返回并点击刷新。")
+            return
+        }
+        collection.window.orderOut(nil)
+        // Some apps need their original item in its normal slot before AXPress.
+        if !state.isExpanded { state.toggle(); refresh() }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard let self else { return }
+            if !MenuBarCatalog.press(entry) {
+                self.showPanel()
+                self.collection.showError("\(entry.name) 未响应菜单操作。可右键该图标打开 App，或使用右键菜单在原菜单栏展开。")
+            } else {
+                self.scheduleAutoCollapse()
+            }
+        }
+    }
+
     @objc private func showHelp() {
+        captureTask?.cancel()
+        collection.window.orderOut(nil)
         // Setup is always done with the hidden region expanded.
         if !state.isExpanded { state.toggle(); refresh() }
         if helpWindow == nil {
@@ -138,9 +209,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.delegate = self
             let title = NSTextField(labelWithString: "让菜单栏，清爽一点。")
             title.font = .systemFont(ofSize: 24, weight: .semibold)
-            let body = NSTextField(wrappingLabelWithString: "1. 按住 ⌘，把 │ 拖到 TuckBar 箭头的左侧。\n\n2. 按住 ⌘，把想隐藏的 App 图标拖到 │ 左侧；常用图标放在右侧。\n\n3. 点击箭头，一键收起或展开；展开 15 秒后自动收起。右键箭头打开菜单。")
+            let body = NSTextField(wrappingLabelWithString: "1. 按住 ⌘，把 │ 拖到 TuckBar 箭头的左侧。\n\n2. 按住 ⌘，把想隐藏的 App 图标拖到 │ 左侧；常用图标放在右侧。\n\n3. 完成整理后，点击 TuckBar 图标会在下方打开收纳面板；在面板里点击隐藏图标即可使用。")
             body.font = .systemFont(ofSize: 14)
-            let note = NSTextField(wrappingLabelWithString: "刘海屏提示：展开仍受菜单栏实际空间限制，图标过多时可能显示不全。系统固定图标和部分 App 图标无法移动。退出 TuckBar 会恢复显示。")
+            let note = NSTextField(wrappingLabelWithString: "操作隐藏图标需要辅助功能权限；显示原始图标画面可选授权屏幕录制。未授权画面时显示 App 图标。系统固定图标和部分 App 图标无法移动。")
             note.font = .systemFont(ofSize: 12)
             note.textColor = .secondaryLabelColor
             let done = NSButton(title: "整理完成，收起图标", target: self, action: #selector(closeHelp))
@@ -172,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.set(true, forKey: "hasShownSetup")
         helpWindow?.close()
         autoCollapse()
+        showPanel()
     }
 
     func windowWillClose(_ notification: Notification) { scheduleAutoCollapse() }

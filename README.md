@@ -2,22 +2,31 @@
 
 <img src="Resources/TuckBar.iconset/icon_128x128@2x.png" width="128" alt="TuckBar logo">
 
-**把不常用的菜单栏图标收起来，需要时一键展开。**
+**把菜单栏图标藏起来，点击一下，在下方收纳框里使用。**
 
-A small native macOS menu bar utility. Command-drag icons into a collapsible region, then click to tuck them away or reveal them.
+A native macOS menu bar utility with a separate popup for hidden menu bar items.
 
 ![Platform: macOS 13+](https://img.shields.io/badge/macOS-13%2B-black)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-## 功能
+## 使用
 
-- 仅驻留菜单栏，无 Dock 图标，原生 AppKit 界面。
-- 点击箭头展开 / 收起隐藏区。
-- 使用 macOS 自带的 **⌘ + 拖动** 整理图标位置。
-- 右键箭头打开操作菜单、使用说明或退出。
-- 根据最宽的已连接显示器计算隐藏区宽度，显示器变化和唤醒时重新计算。
-- 首次启动展开以便整理，整理完成后启动默认收起；展开 15 秒后自动收起，打开整理窗口时暂停计时。退出时恢复菜单栏空间。
-- 无第三方依赖、无联网代码，不需要辅助功能或屏幕录制权限。
+1. 打开 TuckBar，点击「整理」。
+2. 按住 **⌘**，把分隔线 `│` 放到 TuckBar 图标左侧，再把希望隐藏的图标拖到 `│` 左侧。
+3. 点击「整理完成，收起图标」。
+4. 点击菜单栏中的 TuckBar 图标，下方出现收纳浮层；再点一次关闭。
+5. 在浮层里点击 App 图标，操作它原来的菜单栏图标。右键该图标可打开对应 App。
+
+浮层没有标题栏或左上角的关闭、最小化、全屏按钮。点击外部或按 **Esc** 也会收起。从「应用程序」再次打开已运行的 TuckBar，也会显示浮层。
+
+右键菜单栏 TuckBar 图标可以打开收纳面板、在原菜单栏展开/收起、重新整理或退出。退出会移除分隔项、恢复菜单栏空间。
+
+## 权限
+
+- **辅助功能**：操作其他 App 的菜单栏图标。点击面板里的授权按钮，在系统设置中手动允许后返回刷新。
+- **屏幕录制（可选，macOS 14+）**：使用 ScreenCaptureKit 读取单个菜单栏图标窗口的画面；不授权时显示对应 App 图标。
+
+图标画面只在内存中使用，不落盘、不上传。没有第三方依赖或联网代码。权限仅由用户在系统设置中开启。授权后若未立即生效，请退出并重新打开 TuckBar。
 
 ## 构建与运行
 
@@ -30,33 +39,17 @@ cd TuckBar
 open dist/TuckBar.app
 ```
 
-产物位于 `dist/TuckBar.app`，可复制到「应用程序」文件夹。可以用 Xcode 打开 `Package.swift` 阅读和调试；日常使用建议运行脚本生成的 App bundle。
+将 `dist/TuckBar.app` 复制到「应用程序」即可使用。Xcode 可直接打开 `Package.swift`。
 
-构建脚本生成当前 Mac 架构的二进制，并进行本地 ad-hoc 签名。当前版本没有 Developer ID 签名或 Apple 公证；不提供已公证安装包。
+构建脚本生成当前 Mac 架构的二进制，进行本地 ad-hoc 签名并验证。当前没有 Developer ID 签名或 Apple 公证；重新构建后的权限可能需要在系统设置中重新授权。
 
-## 使用
+## 实现与限制
 
-1. 启动后会出现分隔线 `│` 和箭头。
-2. 按住 **⌘**，把 `│` 拖到 TuckBar 箭头左边。
-3. 将想隐藏的图标拖到分隔线左侧；常用图标放在分隔线与箭头之间或箭头右侧。
-4. 点击「整理完成，收起图标」，或点击菜单栏箭头收起，再点一下展开。展开 15 秒后自动收起，右键箭头可退出或重新整理。
+隐藏通过扩展自身 `NSStatusItem` 分隔项宽度完成，图标移动使用 macOS 的 ⌘ 拖动。浮层独立显示隐藏区的图标，不受刘海右侧可用宽度限制。无画面权限时使用 App 图标，而不是伪装成原始菜单栏符号。
 
-```text
-隐藏区图标     │     常用图标     ‹     系统图标
-   收起区域     分隔线           TuckBar
-```
+操作图标使用 Accessibility 的 `AXPress`。为兼容其他 App，操作前会临时恢复原菜单栏布局，操作后约 15 秒收起。某些 App 不提供可用的 Accessibility 菜单操作时，浮层会显示失败提示；可右键打开 App 或在原菜单栏展开。
 
-收起时分隔线本身也会消失，只留下 TuckBar 展开按钮。
-
-菜单栏位置由 macOS 管理。首次摆放后，系统通常会保留位置；若顺序变化，重新按住 ⌘ 拖动即可。TuckBar 会检查分隔线位置，顺序不对时提示整理，不会主动收起。
-
-## 刘海屏与系统限制
-
-**展开不等于额外增加菜单栏空间。** 刘海屏右侧空间不足时，即使展开，部分图标仍可能被刘海遮挡或无法显示。减少常驻图标、切到菜单较少的 App 或使用更宽的外接显示器可能有帮助。
-
-首版没有独立的第二行图标面板，也不保证所有隐藏图标能同时显示。这是基于原菜单栏展开的轻量实现，不是图标镜像工具。
-
-macOS 没有公开接口让一个 App 任意隐藏、重新排列其他 App 的菜单栏图标。TuckBar 通过调整自身分隔项宽度，把左侧区域挤出可见范围；移动使用系统的 ⌘ 拖动。时钟、控制中心及某些 App 的图标不可自由移动或隐藏。系统版本变化可能影响这一几何方式的表现。
+系统固定图标和某些 App 的图标不能移动。此版本按传统 macOS 独立菜单栏图标窗口进行发现与隐藏；未来系统改变窗口结构时可能需要适配。多显示器下只收集当前 TuckBar 按钮所在菜单栏的隐藏区。
 
 ## 开发与验证
 
@@ -66,24 +59,22 @@ swift test
 codesign --verify --deep --strict dist/TuckBar.app
 ```
 
-自动化测试覆盖展开/收起状态、首次整理与整理后启动状态、外接屏宽度变化、无显示器回退和宽度上限。菜单栏布局由 macOS 的 WindowServer 管理，仍需要真机手动验证：
+测试覆盖收起状态、首次整理、显示器宽度与上限、浮层在左右边缘及窄屏上的位置。
 
-- [ ] 首次运行，按 ⌘ 拖动分隔线和第三方图标。
-- [ ] 点击收起和展开，常用图标与按钮保持可见。
-- [ ] 把分隔线拖到箭头右侧，确认收起被拦截。
-- [ ] 右键菜单和使用说明可操作，关闭说明后应用继续驻留。
-- [ ] 刘海屏、大量图标、外接显示器、拔插和休眠唤醒。
-- [ ] 退出后隐藏区图标恢复，重新启动默认收起。
+手动检查：
 
-GitHub Actions 在 macOS runner 上运行测试并编译 App。
+- 点击菜单栏按钮打开，再次点击关闭，无左上角窗口按钮。
+- 从「应用程序」再次打开已运行的 App 能显示浮层。
+- ⌘ 拖动整理后浮层显示正确图标；点击外部及 Esc 关闭。
+- 未授权时显示说明，授权后能操作第三方图标。
+- 屏幕录制授权后刷新原始图标；不授权仍显示 App 图标。
+- 外接屏、显示器拔插、休眠唤醒、退出恢复。
 
-应用图标由 `scripts/make-icon.swift` 使用 AppKit 绘制，原生 `.icns` 与多尺寸 PNG 保存在 `Resources/`。可编辑脚本后用 `swift scripts/make-icon.swift` 和 `iconutil -c icns Resources/TuckBar.iconset -o Resources/TuckBar.icns` 重新生成。
+可选：`./dist/TuckBar.app/Contents/MacOS/TuckBar --diagnostics` 向标准输出报告本应用自身的分隔项宽度、按钮位置和状态。运行前先退出已有实例。
 
-可选诊断：从终端执行 `./dist/TuckBar.app/Contents/MacOS/TuckBar --diagnostics`，会向标准输出报告本应用自身的分隔项宽度、按钮位置和展开状态，不读取其他 App 或捕获屏幕。运行前先退出已有实例。
+图标使用 AppKit 绘制：`swift scripts/make-icon.swift`，然后运行 `iconutil -c icns Resources/TuckBar.iconset -o Resources/TuckBar.icns`。
 
-## 实现参考
-
-采用公开的 AppKit `NSStatusBar` / `NSStatusItem` 接口。几何隐藏方案也见于 [Hidden Bar 的架构说明](https://github.com/dwarvesf/hidden/blob/develop/docs/ARCHITECTURE.md)。TuckBar 的实现独立编写，不包含其源代码。
+几何隐藏方案参考 [Hidden Bar 的架构说明](https://github.com/dwarvesf/hidden/blob/develop/docs/ARCHITECTURE.md)。图标画面使用 Apple [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)。实现独立编写，不包含其他项目源代码。
 
 ## License
 
